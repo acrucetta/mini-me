@@ -3,6 +3,7 @@ from itertools import chain
 import os
 from string import punctuation
 from typing import List
+import nltk
 from nltk.tokenize import word_tokenize
 from langdetect import detect
 from googletrans import Translator
@@ -11,8 +12,9 @@ from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence
 
-BASE_FOLDER = "/Users/andrescrucettanieto/Library/CloudStorage/OneDrive-WaltzHealth/andrescrucettanieto/andres-vault/Areas/journal/"
+
 SPECIAL_TOKENS = ["<PAD>", "<UNK>", "<SOS>", "<EOS>"]
+nltk.download("punkt")
 
 
 class Vocabulary:
@@ -42,8 +44,13 @@ def get_journal_entries(base_folder: str) -> List[str]:
     """
     journal_entries = []
     for filename in os.listdir(base_folder):
+        # If it's a directory, we search inside it
+        if os.path.isdir(base_folder + filename):
+            journal_entries += get_journal_entries(base_folder + filename + "/")
+        # If it's a file, we read it
         if filename.endswith(".md") or filename.endswith(".txt"):
             with open(base_folder + filename, "r", encoding="utf-8") as f:
+                print(f"Reading file {filename}")
                 text = f.read()
                 journal_entries.append(clean_text(text))
     return journal_entries
@@ -73,15 +80,16 @@ def clean_text(text: str) -> str:
 
     if language != "en":
         translator = Translator()
-        text = translator.translate(text, dest="en").text
+        translation = translator.translate(text, src="es", dest="en")
+        text = translation.text
 
-    words = "<SOS> " + " ".join(word_tokenize(text)) + " <EOS>"
-    return words
+    sentence = "<SOS> " + " ".join(word_tokenize(text)) + " <EOS>"
+    return sentence
 
 
-def build_vocabulary(sentences: List[List[str]]) -> Vocabulary:
+def build_vocabulary(sentences: List[str]) -> Vocabulary:
     vocab = Vocabulary(SPECIAL_TOKENS)
-    vocab.build_vocabulary(*sentences)
+    vocab.build_vocabulary(sentences)
     return vocab
 
 
@@ -101,9 +109,9 @@ class TextDataset(Dataset):
 
 
 def prepare_data(base_folder: str):
-    sentences = [text.split() for text in get_journal_entries(BASE_FOLDER)]
-    vocab = build_vocabulary(*sentences)
-    sequences = [text_to_sequence(text, vocab) for text in journal_entries]
+    sentences = get_journal_entries(base_folder)
+    vocab = build_vocabulary(sentences)
+    sequences = [text_to_sequence(text, vocab) for text in sentences]
 
     # Pad sequences and create PyTorch DataLoader
     sequences_padded = pad_sequence(
@@ -117,8 +125,10 @@ def prepare_data(base_folder: str):
     return data_loader, vocab
 
 
-if __main__ == "__main__":
-    data_loader, vocab = prepare_data(BASE_FOLDER)
+if __name__ == "__main__":
+    data_loader, vocab = prepare_data(
+        base_folder="/Users/andrescrucettanieto/Library/CloudStorage/OneDrive-WaltzHealth/andrescrucettanieto/andres-vault/Areas/journal/diary/"
+    )
     for batch in data_loader:
         print(batch)
         break
